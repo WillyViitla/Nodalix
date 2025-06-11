@@ -1,4 +1,4 @@
-# ![Nodalix Logo](https://freeimage.host/i/FKZ1AMP)
+# [![FKZ1AMP.md.png](https://iili.io/FKZ1AMP.md.png)](https://freeimage.host/i/FKZ1AMP)
 
 # Nodalix  
 **A Lightweight Java-Based Web Server with Custom Database and Encryption**
