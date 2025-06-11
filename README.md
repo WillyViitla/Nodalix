@@ -1,4 +1,4 @@
-# ![Nodalix Logo](https://i.ibb.co/9HtZV3F/nodalix-logo.png)
+# ![Nodalix Logo](https://ibb.co/DfvF466s)
 
 # Nodalix  
 **A Lightweight Java-Based Web Server with Custom Database and Encryption**
