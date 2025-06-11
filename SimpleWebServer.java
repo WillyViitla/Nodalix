@@ -1,4 +1,4 @@
-// FULL UPDATED SimpleWebServer.java
+// Nodalix - Modern Styled Web Server with Database Support
 
 import java.io.*;
 import java.net.*;
@@ -60,7 +60,7 @@ public class SimpleWebServer {
             }
 
             if (!isAuthenticated(authHeader)) {
-                String response = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"SimpleWeb\"\r\n\r\n";
+                String response = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"Nodalix\"\r\n\r\n";
                 out.write(response.getBytes());
                 out.flush();
                 return;
@@ -81,20 +81,10 @@ public class SimpleWebServer {
             log(method + " " + path);
 
             if (path.equals("/") || path.equals("/index")) {
-                sendHtml(out,
-                    "<h1>Welcome</h1>" +
-                    "<a href='/databases'>Databases</a> | " +
-                    "<a href='/createdb'>Create Database</a> | " +
-                    "<a href='/logs'>Logs</a> | " +
-                    "<a href='/config'>Config</a>");
+                sendHtml(out, getHomePage());
             }
             else if (path.equals("/createdb") && method.equals("GET")) {
-                sendHtml(out,
-                    "<h1>Create DB</h1>" +
-                    "<form method='POST'>" +
-                    "<input name='dbname' placeholder='mydb'>" +
-                    "<button>Create</button>" +
-                    "</form>");
+                sendHtml(out, getCreateDbPage());
             }
             else if (path.equals("/createdb") && method.equals("POST")) {
                 Map<String, String> form = parseFormData(body);
@@ -105,23 +95,14 @@ public class SimpleWebServer {
                         log("Created database: " + dbName);
                         sendRedirect(out, "/databases");
                     } else {
-                        sendHtml(out, "<p>Database already exists!</p><a href='/databases'>Back</a>");
+                        sendHtml(out, getErrorPage("Database already exists!", "/databases", "Back to Databases"));
                     }
                 } else {
-                    sendHtml(out, "<p>Invalid name</p><a href='/createdb'>Try Again</a>");
+                    sendHtml(out, getErrorPage("Invalid database name! Use only letters, numbers, and underscores.", "/createdb", "Try Again"));
                 }
             }
             else if (path.equals("/databases")) {
-                StringBuilder html = new StringBuilder("<h1>Databases</h1><ul>");
-                for (File db : DATABASE_DIR.listFiles((d, name) -> name.endsWith(".secdb"))) {
-                    html.append("<li><a href='/viewdb?name=").append(db.getName()).append("'>")
-                        .append(db.getName()).append("</a> ")
-                        .append("<form method='POST' action='/deletedb' style='display:inline'>")
-                        .append("<input type='hidden' name='dbname' value='").append(db.getName()).append("'>")
-                        .append("<button>Delete</button></form></li>");
-                }
-                html.append("</ul><a href='/'>Back</a>");
-                sendHtml(out, html.toString());
+                sendHtml(out, getDatabasesPage());
             }
             else if (path.equals("/deletedb") && method.equals("POST")) {
                 Map<String, String> form = parseFormData(body);
@@ -137,35 +118,10 @@ public class SimpleWebServer {
                 String name = URLDecoder.decode(getQueryParam(path, "name"), "UTF-8");
                 File dbFile = new File(DATABASE_DIR, name);
                 if (!dbFile.exists()) {
-                    sendHtml(out, "<p>Database not found</p><a href='/databases'>Back</a>");
+                    sendHtml(out, getErrorPage("Database not found!", "/databases", "Back to Databases"));
                     return;
                 }
-                UserDatabase db = new UserDatabase(dbFile);
-                StringBuilder html = new StringBuilder("<h1>" + name + "</h1>");
-                html.append(
-                    "<h2>Create Table</h2>" +
-                    "<form method='POST' action='/createtable'>" +
-                    "<input type='hidden' name='dbname' value='" + name + "'>" +
-                    "<input name='tablename' placeholder='tablename'>" +
-                    "<input name='columns' placeholder='id,name,age'>" +
-                    "<button>Create</button>" +
-                    "</form>"
-                );
-                for (String table : db.getTables()) {
-                    html.append("<h2>Table: ").append(table).append("</h2><table border='1'><tr>");
-                    List<String> columns = db.getColumns(table);
-                    for (String col : columns) html.append("<th>").append(col).append("</th>");
-                    html.append("<th>Actions</th></tr>");
-                    for (String[] row : db.getRows(table)) {
-                        html.append("<tr>");
-                        for (String cell : row) html.append("<td>").append(cell).append("</td>");
-                        html.append("<td><form method='POST' action='/deleterow'><input type='hidden' name='dbname' value='").append(name).append("'><input type='hidden' name='table' value='").append(table).append("'><input type='hidden' name='id' value='").append(row[0]).append("'><button>Delete</button></form></td>");
-                        html.append("</tr>");
-                    }
-                    html.append("</table>");
-                }
-                html.append("<a href='/databases'>Back</a>");
-                sendHtml(out, html.toString());
+                sendHtml(out, getViewDbPage(name, dbFile));
             }
             else if (path.equals("/createtable") && method.equals("POST")) {
                 Map<String, String> form = parseFormData(body);
@@ -192,37 +148,7 @@ public class SimpleWebServer {
                 sendRedirect(out, "/viewdb?name=" + URLEncoder.encode(dbName, "UTF-8"));
             }
             else if (path.equals("/logs")) {
-                String logs = Files.readString(Path.of("server.log"));
-                String html = """
-                    <h1>Logs</h1>
-                    <div style='margin-bottom: 10px;'>
-                        <button onclick='refreshLogs()'>Refresh</button>
-                        <button onclick='clearLogs()'>Clear Logs</button>
-                    </div>
-                    <pre id='logContainer' style='height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background: #f5f5f5; font-family: monospace;'>%s</pre>
-                    <a href='/'>Back</a>
-                    <script>
-                        function scrollToBottom() {
-                            const container = document.getElementById('logContainer');
-                            container.scrollTop = container.scrollHeight;
-                        }
-                        
-                        function refreshLogs() {
-                            window.location.reload();
-                        }
-                        
-                        function clearLogs() {
-                            if (confirm('Are you sure you want to clear all logs?')) {
-                                fetch('/clear-logs', { method: 'POST' })
-                                    .then(() => window.location.reload());
-                            }
-                        }
-                        
-                        // Auto-scroll to bottom when page loads
-                        window.onload = scrollToBottom;
-                    </script>
-                    """.formatted(logs);
-                sendHtml(out, html);
+                sendHtml(out, getLogsPage());
             }
             else if (path.equals("/clear-logs") && method.equals("POST")) {
                 try (FileWriter fw = new FileWriter("server.log", false)) {
@@ -232,26 +158,7 @@ public class SimpleWebServer {
                 sendRedirect(out, "/logs");
             }
             else if (path.equals("/config") && method.equals("GET")) {
-                String html = """
-                    <h1>Server Configuration</h1>
-                    <form method='POST'>
-                        <label>Username: <input name='username' value='%s'></label><br>
-                        <label>Password: <input type='password' name='password' value='%s'></label><br>
-                        <label>Port: <input value='%s' readonly></label><br>
-                        <label>Key: <input name='key' value='%s' readonly></label><br>
-                        <button>Save</button>
-                    </form>
-                    <form method='POST' action='/regenerate-key' style='margin-top:20px'>
-                        <button>Regenerate Key</button>
-                    </form>
-                    <a href='/'>Back</a>
-                    """.formatted(
-                    config.getProperty("server.username", "admin"),
-                    config.getProperty("server.password", ""),
-                    config.getProperty("server.port", "8080"),
-                    SECRET_KEY
-                );
-                sendHtml(out, html);
+                sendHtml(out, getConfigPage());
             }
             else if (path.equals("/config") && method.equals("POST")) {
                 Map<String, String> form = parseFormData(body);
@@ -277,12 +184,569 @@ public class SimpleWebServer {
                 sendRedirect(out, "/config");
             }
             else {
-                sendHtml(out, "<h1>404 Not Found</h1><a href='/'>Home</a>", 404);
+                sendHtml(out, get404Page(), 404);
             }
 
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    private static String getBaseTemplate(String title, String content) {
+        return """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>%s - Nodalix</title>
+                <script src="https://cdn.tailwindcss.com"></script>
+                <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+                    body { font-family: 'Inter', sans-serif; }
+                    .gradient-bg { background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); }
+                    .card-shadow { box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+                    .hover-lift:hover { transform: translateY(-2px); transition: all 0.3s ease; }
+                    .glass-effect { backdrop-filter: blur(10px); background: rgba(255,255,255,0.1); }
+                </style>
+            </head>
+            <body class="bg-gray-50 min-h-screen">
+                <!-- Navigation -->
+                <nav class="gradient-bg shadow-lg">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div class="flex justify-between items-center h-16">
+                            <div class="flex items-center space-x-3">
+                                <img src="logo.png" alt="Nodalix" class="h-8 w-8 rounded-lg" onerror="this.style.display='none'">
+                                <h1 class="text-white text-xl font-bold">Nodalix</h1>
+                                <span class="text-blue-200 text-sm">Database Server</span>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <a href="/" class="text-white hover:text-blue-200 transition-colors">
+                                    <i class="fas fa-home mr-1"></i>Home
+                                </a>
+                                <a href="/databases" class="text-white hover:text-blue-200 transition-colors">
+                                    <i class="fas fa-database mr-1"></i>Databases
+                                </a>
+                                <a href="/logs" class="text-white hover:text-blue-200 transition-colors">
+                                    <i class="fas fa-file-alt mr-1"></i>Logs
+                                </a>
+                                <a href="/config" class="text-white hover:text-blue-200 transition-colors">
+                                    <i class="fas fa-cog mr-1"></i>Config
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+
+                <!-- Main Content -->
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                    %s
+                </div>
+            </body>
+            </html>
+            """.formatted(title, content);
+    }
+
+    private static String getHomePage() {
+        String content = """
+            <div class="text-center mb-12">
+                <h1 class="text-4xl font-bold text-gray-900 mb-4">Welcome to Nodalix</h1>
+                <p class="text-xl text-gray-600">Professional Database Management Server</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <a href="/databases" class="block bg-white rounded-xl p-6 card-shadow hover-lift">
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-database text-2xl text-blue-600"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-gray-900 mb-2">View Databases</h3>
+                        <p class="text-gray-600">Manage your existing databases</p>
+                    </div>
+                </a>
+
+                <a href="/createdb" class="block bg-white rounded-xl p-6 card-shadow hover-lift">
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-plus-circle text-2xl text-green-600"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-gray-900 mb-2">Create Database</h3>
+                        <p class="text-gray-600">Set up a new database</p>
+                    </div>
+                </a>
+
+                <a href="/logs" class="block bg-white rounded-xl p-6 card-shadow hover-lift">
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-file-alt text-2xl text-purple-600"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-gray-900 mb-2">Server Logs</h3>
+                        <p class="text-gray-600">Monitor server activity</p>
+                    </div>
+                </a>
+
+                <a href="/config" class="block bg-white rounded-xl p-6 card-shadow hover-lift">
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-cog text-2xl text-orange-600"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-gray-900 mb-2">Configuration</h3>
+                        <p class="text-gray-600">Server settings</p>
+                    </div>
+                </a>
+            </div>
+
+            <div class="mt-12 bg-white rounded-xl p-8 card-shadow">
+                <h2 class="text-2xl font-bold text-gray-900 mb-4">Server Status</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="text-center p-4 bg-green-50 rounded-lg">
+                        <div class="text-2xl font-bold text-green-600">Online</div>
+                        <div class="text-gray-600">Server Status</div>
+                    </div>
+                    <div class="text-center p-4 bg-blue-50 rounded-lg">
+                        <div class="text-2xl font-bold text-blue-600">%d</div>
+                        <div class="text-gray-600">Active Sessions</div>
+                    </div>
+                    <div class="text-center p-4 bg-purple-50 rounded-lg">
+                        <div class="text-2xl font-bold text-purple-600">%d</div>
+                        <div class="text-gray-600">Databases</div>
+                    </div>
+                </div>
+            </div>
+            """.formatted(sessions.size(), DATABASE_DIR.listFiles((d, name) -> name.endsWith(".secdb")).length);
+
+        return getBaseTemplate("Dashboard", content);
+    }
+
+    private static String getCreateDbPage() {
+        String content = """
+            <div class="max-w-2xl mx-auto">
+                <div class="bg-white rounded-xl p-8 card-shadow">
+                    <div class="text-center mb-8">
+                        <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-plus-circle text-2xl text-green-600"></i>
+                        </div>
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Create New Database</h1>
+                        <p class="text-gray-600">Set up a new database for your project</p>
+                    </div>
+
+                    <form method="POST" class="space-y-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Database Name</label>
+                            <input type="text" name="dbname" 
+                                   class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                                   placeholder="Enter database name (e.g., myproject_db)"
+                                   pattern="\\w+" 
+                                   title="Only letters, numbers, and underscores allowed"
+                                   required>
+                            <p class="text-sm text-gray-500 mt-2">Only letters, numbers, and underscores are allowed</p>
+                        </div>
+
+                        <div class="flex space-x-4">
+                            <button type="submit" 
+                                    class="flex-1 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                                <i class="fas fa-plus mr-2"></i>Create Database
+                            </button>
+                            <a href="/databases" 
+                               class="flex-1 bg-gray-200 text-gray-700 py-3 px-6 rounded-lg hover:bg-gray-300 transition-colors font-medium text-center">
+                                <i class="fas fa-arrow-left mr-2"></i>Cancel
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            """;
+
+        return getBaseTemplate("Create Database", content);
+    }
+
+    private static String getDatabasesPage() {
+        StringBuilder content = new StringBuilder();
+        content.append("""
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Databases</h1>
+                    <p class="text-gray-600">Manage your database collections</p>
+                </div>
+                <a href="/createdb" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                    <i class="fas fa-plus mr-2"></i>New Database
+                </a>
+            </div>
+            """);
+
+        File[] databases = DATABASE_DIR.listFiles((d, name) -> name.endsWith(".secdb"));
+        
+        if (databases == null || databases.length == 0) {
+            content.append("""
+                <div class="bg-white rounded-xl p-12 card-shadow text-center">
+                    <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i class="fas fa-database text-3xl text-gray-400"></i>
+                    </div>
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2">No Databases Found</h3>
+                    <p class="text-gray-600 mb-6">Get started by creating your first database</p>
+                    <a href="/createdb" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                        <i class="fas fa-plus mr-2"></i>Create Database
+                    </a>
+                </div>
+                """);
+        } else {
+            content.append("<div class=\"grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6\">");
+            
+            for (File db : databases) {
+                String dbName = db.getName();
+                long size = db.length();
+                String sizeStr = size > 1024 ? (size / 1024) + " KB" : size + " B";
+                
+                content.append("""
+                    <div class="bg-white rounded-xl p-6 card-shadow hover-lift">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-database text-blue-600"></i>
+                            </div>
+                            <form method="POST" action="/deletedb" class="inline" 
+                                  onsubmit="return confirm('Are you sure you want to delete this database?')">
+                                <input type="hidden" name="dbname" value="%s">
+                                <button type="submit" class="text-red-500 hover:text-red-700 transition-colors">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <h3 class="text-lg font-semibold text-gray-900 mb-2">%s</h3>
+                        <p class="text-sm text-gray-500 mb-4">Size: %s</p>
+                        
+                        <a href="/viewdb?name=%s" 
+                           class="block w-full bg-blue-600 text-white text-center py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                            <i class="fas fa-eye mr-2"></i>View Database
+                        </a>
+                    </div>
+                    """.formatted(dbName, dbName.replace(".secdb", ""), sizeStr, dbName));
+            }
+            
+            content.append("</div>");
+        }
+
+        return getBaseTemplate("Databases", content.toString());
+    }
+
+    private static String getViewDbPage(String dbName, File dbFile) {
+        UserDatabase db = new UserDatabase(dbFile);
+        StringBuilder content = new StringBuilder();
+        
+        content.append("""
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">%s</h1>
+                    <p class="text-gray-600">Database management and table operations</p>
+                </div>
+                <a href="/databases" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-300 transition-colors font-medium">
+                    <i class="fas fa-arrow-left mr-2"></i>Back to Databases
+                </a>
+            </div>
+
+            <!-- Create Table Form -->
+            <div class="bg-white rounded-xl p-6 card-shadow mb-8">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                    <i class="fas fa-table mr-2"></i>Create New Table
+                </h2>
+                <form method="POST" action="/createtable" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <input type="hidden" name="dbname" value="%s">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Table Name</label>
+                        <input type="text" name="tablename" 
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="users" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Columns</label>
+                        <input type="text" name="columns" 
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="id,name,email" required>
+                    </div>
+                    <div class="flex items-end">
+                        <button type="submit" 
+                                class="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors">
+                            <i class="fas fa-plus mr-2"></i>Create Table
+                        </button>
+                    </div>
+                </form>
+            </div>
+            """.formatted(dbName.replace(".secdb", ""), dbName));
+
+        // Display tables
+        List<String> tables = db.getTables();
+        if (tables.isEmpty()) {
+            content.append("""
+                <div class="bg-white rounded-xl p-12 card-shadow text-center">
+                    <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i class="fas fa-table text-3xl text-gray-400"></i>
+                    </div>
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2">No Tables Found</h3>
+                    <p class="text-gray-600">Create your first table to get started</p>
+                </div>
+                """);
+        } else {
+            for (String table : tables) {
+                content.append("""
+                    <div class="bg-white rounded-xl p-6 card-shadow mb-6">
+                        <h2 class="text-xl font-semibold text-gray-900 mb-4">
+                            <i class="fas fa-table mr-2"></i>Table: %s
+                        </h2>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                    """.formatted(table));
+
+                List<String> columns = db.getColumns(table);
+                for (String col : columns) {
+                    content.append("""
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">%s</th>
+                        """.formatted(col));
+                }
+                content.append("""
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                    """);
+
+                List<String[]> rows = db.getRows(table);
+                if (rows.isEmpty()) {
+                    content.append("""
+                        <tr>
+                            <td colspan="%d" class="px-6 py-4 text-center text-gray-500">No data available</td>
+                        </tr>
+                        """.formatted(columns.size() + 1));
+                } else {
+                    for (String[] row : rows) {
+                        content.append("<tr class=\"hover:bg-gray-50\">");
+                        for (String cell : row) {
+                            content.append("""
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">%s</td>
+                                """.formatted(cell != null ? cell : ""));
+                        }
+                        content.append("""
+                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                <form method="POST" action="/deleterow" class="inline"
+                                      onsubmit="return confirm('Are you sure you want to delete this row?')">
+                                    <input type="hidden" name="dbname" value="%s">
+                                    <input type="hidden" name="table" value="%s">
+                                    <input type="hidden" name="id" value="%s">
+                                    <button type="submit" class="text-red-600 hover:text-red-900 transition-colors">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                            </td>
+                            </tr>
+                            """.formatted(dbName, table, row[0]));
+                    }
+                }
+                
+                content.append("""
+                    </tbody>
+                    </table>
+                    </div>
+                    </div>
+                    """);
+            }
+        }
+
+        return getBaseTemplate("Database: " + dbName.replace(".secdb", ""), content.toString());
+    }
+
+    private static String getLogsPage() {
+        String logs = "";
+        try {
+            logs = Files.readString(Path.of("server.log"));
+        } catch (IOException e) {
+            logs = "No logs available";
+        }
+
+        String content = """
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Server Logs</h1>
+                    <p class="text-gray-600">Monitor server activity and events</p>
+                </div>
+                <div class="flex space-x-3">
+                    <button onclick="refreshLogs()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                        <i class="fas fa-sync-alt mr-2"></i>Refresh
+                    </button>
+                    <button onclick="clearLogs()" class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors">
+                        <i class="fas fa-trash mr-2"></i>Clear Logs
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl p-6 card-shadow">
+                <div class="bg-gray-900 rounded-lg p-4">
+                    <pre id="logContainer" class="text-green-400 text-sm overflow-x-auto max-h-96 overflow-y-auto font-mono">%s</pre>
+                </div>
+            </div>
+
+            <script>
+                function scrollToBottom() {
+                    const container = document.getElementById('logContainer');
+                    container.scrollTop = container.scrollHeight;
+                }
+                
+                function refreshLogs() {
+                    window.location.reload();
+                }
+                
+                function clearLogs() {
+                    if (confirm('Are you sure you want to clear all logs?')) {
+                        fetch('/clear-logs', { method: 'POST' })
+                            .then(() => window.location.reload());
+                    }
+                }
+                
+                // Auto-scroll to bottom when page loads
+                window.onload = scrollToBottom;
+            </script>
+            """.formatted(logs.isEmpty() ? "No logs available" : logs);
+
+        return getBaseTemplate("Server Logs", content);
+    }
+
+    private static String getConfigPage() {
+        String content = """
+            <div class="max-w-4xl mx-auto">
+                <div class="flex justify-between items-center mb-8">
+                    <div>
+                        <h1 class="text-3xl font-bold text-gray-900">Server Configuration</h1>
+                        <p class="text-gray-600">Manage server settings and security</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <!-- Authentication Settings -->
+                    <div class="bg-white rounded-xl p-6 card-shadow">
+                        <h2 class="text-xl font-semibold text-gray-900 mb-6">
+                            <i class="fas fa-shield-alt mr-2"></i>Authentication
+                        </h2>
+                        <form method="POST" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                                <input type="text" name="username" value="%s"
+                                       class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                                <input type="password" name="password" value="%s"
+                                       class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+                            <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                                <i class="fas fa-save mr-2"></i>Save Changes
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Server Information -->
+                    <div class="bg-white rounded-xl p-6 card-shadow">
+                        <h2 class="text-xl font-semibold text-gray-900 mb-6">
+                            <i class="fas fa-server mr-2"></i>Server Information
+                        </h2>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Port</label>
+                                <input type="text" value="%s" readonly
+                                       class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-600">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Security Key</label>
+                                <div class="flex space-x-2">
+                                    <input type="text" value="%s" readonly
+                                           class="flex-1 px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg font-mono text-gray-600">
+                                    <form method="POST" action="/regenerate-key" class="inline">
+                                        <button type="submit" class="bg-orange-600 text-white px-4 py-3 rounded-lg hover:bg-orange-700 transition-colors"
+                                                onclick="return confirm('Are you sure you want to regenerate the security key?')">
+                                            <i class="fas fa-sync-alt"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                                <p class="text-sm text-gray-500 mt-2">Used for internal security operations</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Status -->
+                <div class="bg-white rounded-xl p-6 card-shadow mt-8">
+                    <h2 class="text-xl font-semibold text-gray-900 mb-6">
+                        <i class="fas fa-chart-line mr-2"></i>System Status
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div class="text-center p-4 bg-green-50 rounded-lg">
+                            <div class="text-2xl font-bold text-green-600">Online</div>
+                            <div class="text-sm text-gray-600">Server Status</div>
+                        </div>
+                        <div class="text-center p-4 bg-blue-50 rounded-lg">
+                            <div class="text-2xl font-bold text-blue-600">%d</div>
+                            <div class="text-sm text-gray-600">Active Sessions</div>
+                        </div>
+                        <div class="text-center p-4 bg-purple-50 rounded-lg">
+                            <div class="text-2xl font-bold text-purple-600">%d</div>
+                            <div class="text-sm text-gray-600">Total Databases</div>
+                        </div>
+                        <div class="text-center p-4 bg-orange-50 rounded-lg">
+                            <div class="text-2xl font-bold text-orange-600">%s</div>
+                            <div class="text-sm text-gray-600">Uptime</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """.formatted(
+                config.getProperty("server.username", "admin"),
+                config.getProperty("server.password", ""),
+                config.getProperty("server.port", "8080"),
+                SECRET_KEY,
+                sessions.size(),
+                DATABASE_DIR.listFiles((d, name) -> name.endsWith(".secdb")).length,
+                "Active"
+            );
+
+        return getBaseTemplate("Configuration", content);
+    }
+
+    private static String getErrorPage(String message, String backUrl, String backText) {
+        String content = """
+            <div class="max-w-2xl mx-auto text-center">
+                <div class="bg-white rounded-xl p-8 card-shadow">
+                    <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i class="fas fa-exclamation-triangle text-2xl text-red-600"></i>
+                    </div>
+                    <h1 class="text-2xl font-bold text-gray-900 mb-4">Oops! Something went wrong</h1>
+                    <p class="text-gray-600 mb-8">%s</p>
+                    <a href="%s" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                        <i class="fas fa-arrow-left mr-2"></i>%s
+                    </a>
+                </div>
+            </div>
+            """.formatted(message, backUrl, backText);
+
+        return getBaseTemplate("Error", content);
+    }
+
+    private static String get404Page() {
+        String content = """
+            <div class="max-w-2xl mx-auto text-center">
+                <div class="bg-white rounded-xl p-8 card-shadow">
+                    <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i class="fas fa-search text-3xl text-gray-400"></i>
+                    </div>
+                    <h1 class="text-3xl font-bold text-gray-900 mb-4">404 - Page Not Found</h1>
+                    <p class="text-gray-600 mb-8">The page you're looking for doesn't exist or has been moved.</p>
+                    <a href="/" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                        <i class="fas fa-home mr-2"></i>Go Home
+                    </a>
+                </div>
+            </div>
+            """;
+
+        return getBaseTemplate("Page Not Found", content);
     }
 
     private static boolean isAuthenticated(String authHeader) {
@@ -300,7 +764,7 @@ public class SimpleWebServer {
     }
 
     private static void sendHtml(OutputStream out, String html, int code) throws IOException {
-        String response = "HTTP/1.1 " + code + " OK\r\nContent-Type: text/html\r\n\r\n<html><body>" + html + "</body></html>";
+        String response = "HTTP/1.1 " + code + " OK\r\nContent-Type: text/html\r\n\r\n" + html;
         out.write(response.getBytes());
         out.flush();
     }
@@ -397,6 +861,150 @@ public class SimpleWebServer {
             fw.write("[" + new Date() + "] " + text + "\n");
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    static class UserDatabase {
+        private File dbFile;
+        private Map<String, List<String[]>> tables;
+        private Map<String, List<String>> tableHeaders;
+        
+        public UserDatabase(File dbFile) {
+            this.dbFile = dbFile;
+            this.tables = new HashMap<>();
+            this.tableHeaders = new HashMap<>();
+            
+            if (dbFile.exists() && dbFile.length() > 0) {
+                try {
+                    load(); // Load existing data
+                } catch (IOException e) {
+                    System.err.println("Error loading database: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        }
+        
+        public List<String> getTables() {
+            return new ArrayList<>(tables.keySet());
+        }
+        
+        public List<String> getColumns(String table) {
+            return tableHeaders.getOrDefault(table, new ArrayList<>());
+        }
+        
+        public List<String[]> getRows(String table) {
+            return tables.getOrDefault(table, new ArrayList<>());
+        }
+        
+        public void createTable(String tableName, String[] columns) {
+            if (tables.containsKey(tableName)) return;
+            tableHeaders.put(tableName, Arrays.asList(columns));
+            tables.put(tableName, new ArrayList<>());
+            try {
+                save();
+            } catch (IOException e) {
+                System.err.println("Error saving database: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+        
+        public void insert(String tableName, String[] row) {
+            if (!tables.containsKey(tableName)) {
+                throw new IllegalArgumentException("No such table: " + tableName);
+            }
+            tables.get(tableName).add(row);
+            try {
+                save();
+            } catch (IOException e) {
+                System.err.println("Error saving database: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+        
+        public void deleteRow(String tableName, String id) {
+            List<String[]> rows = tables.get(tableName);
+            if (rows != null) {
+                Iterator<String[]> it = rows.iterator();
+                while (it.hasNext()) {
+                    String[] row = it.next();
+                    if (row.length > 0 && row[0].equals(id)) {
+                        it.remove();
+                        try {
+                            save();
+                        } catch (IOException e) {
+                            System.err.println("Error saving database: " + e.getMessage());
+                            e.printStackTrace();
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+        
+        public void deleteRow(String tableName, int index) {
+            List<String[]> rows = tables.get(tableName);
+            if (rows != null && index >= 0 && index < rows.size()) {
+                rows.remove(index);
+                try {
+                    save();
+                } catch (IOException e) {
+                    System.err.println("Error saving database: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        }
+        
+        public void resetTable(String tableName) {
+            if (tables.containsKey(tableName)) {
+                tables.put(tableName, new ArrayList<>());
+                try {
+                    save();
+                } catch (IOException e) {
+                    System.err.println("Error saving database: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        }
+        
+        public void deleteTable(String tableName) {
+            tables.remove(tableName);
+            tableHeaders.remove(tableName);
+            try {
+                save();
+            } catch (IOException e) {
+                System.err.println("Error saving database: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+        
+        private void save() throws IOException {
+            try (ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(dbFile))) {
+                out.writeObject(tableHeaders);
+                out.writeObject(tables);
+            }
+        }
+        
+        @SuppressWarnings("unchecked")
+        private void load() throws IOException {
+            try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(dbFile))) {
+                // Read tableHeaders first (as saved in save() method)
+                Object headersObj = in.readObject();
+                if (headersObj instanceof Map) {
+                    this.tableHeaders = (Map<String, List<String>>) headersObj;
+                }
+                
+                // Read tables second
+                Object tablesObj = in.readObject();
+                if (tablesObj instanceof Map) {
+                    this.tables = (Map<String, List<String[]>>) tablesObj;
+                }
+            } catch (IOException | ClassNotFoundException e) {
+                System.err.println("Error loading database file: " + e.getMessage());
+                e.printStackTrace();
+                // Reset to empty state on error
+                this.tables = new HashMap<>();
+                this.tableHeaders = new HashMap<>();
+            }
         }
     }
 }
