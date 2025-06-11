@@ -5,6 +5,12 @@
 
 ---
 
+## Preview credentials
+- username: admin
+- password: password
+
+---
+
 ## About Nodalix
 
 Nodalix is a lightweight web server written entirely in Java. It features a custom-built encrypted database system, allowing you to securely manage your data directly through a user-friendly web interface. Designed with simplicity, flexibility, and security in mind, Nodalix serves as a strong foundation for Java-based server applications.
