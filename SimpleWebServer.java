@@ -194,6 +194,21 @@ public class SimpleWebServer {
                 }
                 sendRedirect(out, "/config");
             }
+            else if (path.equals("/api/insert") && method.equals("POST")) {
+                handleApiInsert(out, body);
+            }
+            // API Endpoint: Query data from database
+            else if (path.equals("/api/query") && method.equals("POST")) {
+                handleApiQuery(out, body);
+            }
+            // API Endpoint: Check if record exists
+            else if (path.equals("/api/exists") && method.equals("POST")) {
+                handleApiExists(out, body);
+            }
+            // API Endpoint: Get all rows from table
+            else if (path.equals("/api/getrows") && method.equals("POST")) {
+                handleApiGetRows(out, body);
+            }
             else {
                 sendHtml(out, get404Page(), 404);
             }
@@ -873,6 +888,284 @@ public class SimpleWebServer {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    private static void handleApiInsert(OutputStream out, String body) throws IOException {
+        try {
+            Map<String, String> params = parseFormData(body);
+            String dbFile = params.get("dbfile");
+            String dbTable = params.get("dbtable");
+            String serverSecret = params.get("server_secret");
+            
+            // Verify server secret
+            if (!SECRET_KEY.equals(serverSecret)) {
+                sendJsonResponse(out, "{\"error\":\"Invalid server secret\"}", 401);
+                return;
+            }
+            
+            // Validate required parameters
+            if (dbFile == null || dbTable == null) {
+                sendJsonResponse(out, "{\"error\":\"Missing dbfile or dbtable parameter\"}", 400);
+                return;
+            }
+            
+            File db = new File(DATABASE_DIR, dbFile);
+            if (!db.exists()) {
+                sendJsonResponse(out, "{\"error\":\"Database file not found\"}", 404);
+                return;
+            }
+            
+            UserDatabase database = new UserDatabase(db);
+            
+            // Check if table exists
+            if (!database.getTables().contains(dbTable)) {
+                sendJsonResponse(out, "{\"error\":\"Table not found\"}", 404);
+                return;
+            }
+            
+            // Get table columns
+            List<String> columns = database.getColumns(dbTable);
+            String[] rowData = new String[columns.size()];
+            
+            // Fill row data from parameters
+            for (int i = 0; i < columns.size(); i++) {
+                String value = params.get(columns.get(i));
+                rowData[i] = value != null ? value : "";
+            }
+            
+            // Insert the row
+            database.insert(dbTable, rowData);
+            
+            log("API: Inserted row into " + dbFile + "." + dbTable);
+            sendJsonResponse(out, "{\"success\":true,\"message\":\"Row inserted successfully\"}", 200);
+            
+        } catch (Exception e) {
+            log("API Insert Error: " + e.getMessage());
+            sendJsonResponse(out, "{\"error\":\"Internal server error\"}", 500);
+        }
+    }
+
+    private static void handleApiQuery(OutputStream out, String body) throws IOException {
+        try {
+            Map<String, String> params = parseFormData(body);
+            String dbFile = params.get("dbfile");
+            String dbTable = params.get("dbtable");
+            String serverSecret = params.get("server_secret");
+            String queryColumn = params.get("query_column");
+            String queryValue = params.get("query_value");
+            
+            // Verify server secret
+            if (!SECRET_KEY.equals(serverSecret)) {
+                sendJsonResponse(out, "{\"error\":\"Invalid server secret\"}", 401);
+                return;
+            }
+            
+            // Validate required parameters
+            if (dbFile == null || dbTable == null) {
+                sendJsonResponse(out, "{\"error\":\"Missing dbfile or dbtable parameter\"}", 400);
+                return;
+            }
+            
+            File db = new File(DATABASE_DIR, dbFile);
+            if (!db.exists()) {
+                sendJsonResponse(out, "{\"error\":\"Database file not found\"}", 404);
+                return;
+            }
+            
+            UserDatabase database = new UserDatabase(db);
+            
+            if (!database.getTables().contains(dbTable)) {
+                sendJsonResponse(out, "{\"error\":\"Table not found\"}", 404);
+                return;
+            }
+            
+            List<String> columns = database.getColumns(dbTable);
+            List<String[]> rows = database.getRows(dbTable);
+            
+            StringBuilder jsonResult = new StringBuilder();
+            jsonResult.append("{\"success\":true,\"columns\":[");
+            
+            // Add column names
+            for (int i = 0; i < columns.size(); i++) {
+                jsonResult.append("\"").append(columns.get(i)).append("\"");
+                if (i < columns.size() - 1) jsonResult.append(",");
+            }
+            jsonResult.append("],\"rows\":[");
+            
+            // Filter rows if query parameters provided
+            boolean first = true;
+            for (String[] row : rows) {
+                boolean includeRow = true;
+                
+                if (queryColumn != null && queryValue != null) {
+                    int columnIndex = columns.indexOf(queryColumn);
+                    if (columnIndex >= 0 && columnIndex < row.length) {
+                        includeRow = queryValue.equals(row[columnIndex]);
+                    } else {
+                        includeRow = false;
+                    }
+                }
+                
+                if (includeRow) {
+                    if (!first) jsonResult.append(",");
+                    jsonResult.append("[");
+                    for (int i = 0; i < row.length; i++) {
+                        jsonResult.append("\"").append(row[i] != null ? row[i] : "").append("\"");
+                        if (i < row.length - 1) jsonResult.append(",");
+                    }
+                    jsonResult.append("]");
+                    first = false;
+                }
+            }
+            
+            jsonResult.append("]}");
+            
+            log("API: Queried " + dbFile + "." + dbTable);
+            sendJsonResponse(out, jsonResult.toString(), 200);
+            
+        } catch (Exception e) {
+            log("API Query Error: " + e.getMessage());
+            sendJsonResponse(out, "{\"error\":\"Internal server error\"}", 500);
+        }
+    }
+    
+    private static void handleApiExists(OutputStream out, String body) throws IOException {
+        try {
+            Map<String, String> params = parseFormData(body);
+            String dbFile = params.get("dbfile");
+            String dbTable = params.get("dbtable");
+            String serverSecret = params.get("server_secret");
+            String checkColumn = params.get("check_column");
+            String checkValue = params.get("check_value");
+            
+            // Verify server secret
+            if (!SECRET_KEY.equals(serverSecret)) {
+                sendJsonResponse(out, "{\"error\":\"Invalid server secret\"}", 401);
+                return;
+            }
+            
+            // Validate required parameters
+            if (dbFile == null || dbTable == null || checkColumn == null || checkValue == null) {
+                sendJsonResponse(out, "{\"error\":\"Missing required parameters\"}", 400);
+                return;
+            }
+            
+            File db = new File(DATABASE_DIR, dbFile);
+            if (!db.exists()) {
+                sendJsonResponse(out, "{\"error\":\"Database file not found\"}", 404);
+                return;
+            }
+            
+            UserDatabase database = new UserDatabase(db);
+            
+            if (!database.getTables().contains(dbTable)) {
+                sendJsonResponse(out, "{\"error\":\"Table not found\"}", 404);
+                return;
+            }
+            
+            List<String> columns = database.getColumns(dbTable);
+            List<String[]> rows = database.getRows(dbTable);
+            
+            int columnIndex = columns.indexOf(checkColumn);
+            if (columnIndex < 0) {
+                sendJsonResponse(out, "{\"error\":\"Column not found\"}", 404);
+                return;
+            }
+            
+            boolean exists = false;
+            for (String[] row : rows) {
+                if (columnIndex < row.length && checkValue.equals(row[columnIndex])) {
+                    exists = true;
+                    break;
+                }
+            }
+            
+            log("API: Checked existence in " + dbFile + "." + dbTable);
+            sendJsonResponse(out, "{\"success\":true,\"exists\":" + exists + "}", 200);
+            
+        } catch (Exception e) {
+            log("API Exists Error: " + e.getMessage());
+            sendJsonResponse(out, "{\"error\":\"Internal server error\"}", 500);
+        }
+    }
+    
+    private static void handleApiGetRows(OutputStream out, String body) throws IOException {
+        try {
+            Map<String, String> params = parseFormData(body);
+            String dbFile = params.get("dbfile");
+            String dbTable = params.get("dbtable");
+            String serverSecret = params.get("server_secret");
+            
+            // Verify server secret
+            if (!SECRET_KEY.equals(serverSecret)) {
+                sendJsonResponse(out, "{\"error\":\"Invalid server secret\"}", 401);
+                return;
+            }
+            
+            // Validate required parameters
+            if (dbFile == null || dbTable == null) {
+                sendJsonResponse(out, "{\"error\":\"Missing dbfile or dbtable parameter\"}", 400);
+                return;
+            }
+            
+            File db = new File(DATABASE_DIR, dbFile);
+            if (!db.exists()) {
+                sendJsonResponse(out, "{\"error\":\"Database file not found\"}", 404);
+                return;
+            }
+            
+            UserDatabase database = new UserDatabase(db);
+            
+            if (!database.getTables().contains(dbTable)) {
+                sendJsonResponse(out, "{\"error\":\"Table not found\"}", 404);
+                return;
+            }
+            
+            List<String> columns = database.getColumns(dbTable);
+            List<String[]> rows = database.getRows(dbTable);
+            
+            StringBuilder jsonResult = new StringBuilder();
+            jsonResult.append("{\"success\":true,\"count\":").append(rows.size()).append(",\"columns\":[");
+            
+            // Add column names
+            for (int i = 0; i < columns.size(); i++) {
+                jsonResult.append("\"").append(columns.get(i)).append("\"");
+                if (i < columns.size() - 1) jsonResult.append(",");
+            }
+            jsonResult.append("],\"rows\":[");
+            
+            // Add all rows
+            for (int i = 0; i < rows.size(); i++) {
+                String[] row = rows.get(i);
+                jsonResult.append("[");
+                for (int j = 0; j < row.length; j++) {
+                    jsonResult.append("\"").append(row[j] != null ? row[j] : "").append("\"");
+                    if (j < row.length - 1) jsonResult.append(",");
+                }
+                jsonResult.append("]");
+                if (i < rows.size() - 1) jsonResult.append(",");
+            }
+            
+            jsonResult.append("]}");
+            
+            log("API: Retrieved all rows from " + dbFile + "." + dbTable);
+            sendJsonResponse(out, jsonResult.toString(), 200);
+            
+        } catch (Exception e) {
+            log("API GetRows Error: " + e.getMessage());
+            sendJsonResponse(out, "{\"error\":\"Internal server error\"}", 500);
+        }
+    }
+    
+    private static void sendJsonResponse(OutputStream out, String json, int statusCode) throws IOException {
+        String response = "HTTP/1.1 " + statusCode + " OK\r\n" +
+                         "Content-Type: application/json\r\n" +
+                         "Access-Control-Allow-Origin: *\r\n" +
+                         "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n" +
+                         "Access-Control-Allow-Headers: Content-Type\r\n" +
+                         "\r\n" + json;
+        out.write(response.getBytes());
+        out.flush();
     }
 
     static class UserDatabase {
