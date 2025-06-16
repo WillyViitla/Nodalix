@@ -194,6 +194,9 @@ public class SimpleWebServer {
                 }
                 sendRedirect(out, "/config");
             }
+            else if (path.startsWith("/api/")) {
+                handleApiRequest(out, method, path, body, authHeader);
+            }
             else if (path.equals("/api/insert") && method.equals("POST")) {
                 handleApiInsert(out, body);
             }
@@ -215,6 +218,41 @@ public class SimpleWebServer {
 
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    private static void handleApiRequest(OutputStream out, String method, String path, String body, String authHeader) throws IOException {
+        // Check API authentication using secret key
+        if (!isApiAuthenticated(authHeader)) {
+            sendJsonResponse(out, "{\"error\":\"Unauthorized - provide secret key\"}", 401);
+            return;
+        }
+
+        String[] pathParts = path.split("/");
+        if (pathParts.length < 3) {
+            sendJsonResponse(out, "{\"error\":\"Invalid API path\"}", 400);
+            return;
+        }
+
+        String action = pathParts[2]; // /api/action
+        
+        try {
+            switch (action) {
+                case "insert":
+                    handleInsertApi(out, body);
+                    break;
+                case "get":
+                    handleGetApi(out, body);
+                    break;
+                case "delete":
+                    handleDeleteApi(out, body);
+                    break;
+                default:
+                    sendJsonResponse(out, "{\"error\":\"Unknown API action\"}", 400);
+            }
+        } catch (Exception e) {
+            sendJsonResponse(out, "{\"error\":\"" + e.getMessage() + "\"}", 500);
+            log("API Error: " + e.getMessage());
         }
     }
 
@@ -580,6 +618,137 @@ public class SimpleWebServer {
         }
 
         return getBaseTemplate("Database: " + dbName.replace(".secdb", ""), content.toString());
+    }
+
+    private static boolean isApiAuthenticated(String authHeader) {
+        if (authHeader == null) return false;
+        try {
+            String decoded = new String(Base64.getDecoder().decode(authHeader));
+            return decoded.equals("secret:" + SECRET_KEY);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static void handleInsertApi(OutputStream out, String requestBody) throws IOException {
+        // Parse: file:filename.secdb table:tablename row:col1,col2,col3
+        String[] parts = requestBody.split(" ");
+        String filename = null, tablename = null, rowData = null;
+        
+        for (String part : parts) {
+            if (part.startsWith("file:")) filename = part.substring(5);
+            else if (part.startsWith("table:")) tablename = part.substring(6);
+            else if (part.startsWith("row:")) rowData = part.substring(4);
+        }
+        
+        if (filename == null || tablename == null || rowData == null) {
+            sendJsonResponse(out, "{\"error\":\"Missing file, table, or row data\"}", 400);
+            return;
+        }
+        
+        File dbFile = new File(DATABASE_DIR, filename);
+        if (!dbFile.exists()) {
+            sendJsonResponse(out, "{\"error\":\"Database file not found\"}", 404);
+            return;
+        }
+        
+        UserDatabase db = new UserDatabase(dbFile);
+        String[] rowValues = rowData.split(",");
+        db.insert(tablename, rowValues);
+        
+        sendJsonResponse(out, "{\"success\":true,\"message\":\"Row inserted\"}", 200);
+    }
+
+    private static void handleGetApi(OutputStream out, String requestBody) throws IOException {
+        // Parse: file:filename.secdb table:tablename
+        String[] parts = requestBody.split(" ");
+        String filename = null, tablename = null;
+        
+        for (String part : parts) {
+            if (part.startsWith("file:")) filename = part.substring(5);
+            else if (part.startsWith("table:")) tablename = part.substring(6);
+        }
+        
+        if (filename == null || tablename == null) {
+            sendJsonResponse(out, "{\"error\":\"Missing file or table name\"}", 400);
+            return;
+        }
+        
+        File dbFile = new File(DATABASE_DIR, filename);
+        if (!dbFile.exists()) {
+            sendJsonResponse(out, "{\"error\":\"Database file not found\"}", 404);
+            return;
+        }
+        
+        UserDatabase db = new UserDatabase(dbFile);
+        List<String[]> rows = db.getRows(tablename);
+        List<String> columns = db.getColumns(tablename);
+        
+        StringBuilder json = new StringBuilder();
+        json.append("{\"columns\":[");
+        for (int i = 0; i < columns.size(); i++) {
+            json.append("\"").append(columns.get(i)).append("\"");
+            if (i < columns.size() - 1) json.append(",");
+        }
+        json.append("],\"rows\":[");
+        
+        for (int i = 0; i < rows.size(); i++) {
+            json.append("[");
+            String[] row = rows.get(i);
+            for (int j = 0; j < row.length; j++) {
+                json.append("\"").append(row[j] != null ? row[j] : "").append("\"");
+                if (j < row.length - 1) json.append(",");
+            }
+            json.append("]");
+            if (i < rows.size() - 1) json.append(",");
+        }
+        json.append("]}");
+        
+        sendJsonResponse(out, json.toString(), 200);
+    }
+
+    private static void handleDeleteApi(OutputStream out, String requestBody) throws IOException {
+        // Parse: file:filename.secdb table:tablename row:id
+        String[] parts = requestBody.split(" ");
+        String filename = null, tablename = null, rowId = null;
+        
+        for (String part : parts) {
+            if (part.startsWith("file:")) filename = part.substring(5);
+            else if (part.startsWith("table:")) tablename = part.substring(6);
+            else if (part.startsWith("row:")) rowId = part.substring(4);
+        }
+        
+        if (filename == null || tablename == null || rowId == null) {
+            sendJsonResponse(out, "{\"error\":\"Missing file, table, or row ID\"}", 400);
+            return;
+        }
+        
+        File dbFile = new File(DATABASE_DIR, filename);
+        if (!dbFile.exists()) {
+            sendJsonResponse(out, "{\"error\":\"Database file not found\"}", 404);
+            return;
+        }
+        
+        UserDatabase db = new UserDatabase(dbFile);
+        db.deleteRow(tablename, rowId);
+        
+        sendJsonResponse(out, "{\"success\":true,\"message\":\"Row deleted\"}", 200);
+    }
+
+    private static void sendJsonResponse(OutputStream out, String json, int statusCode) throws IOException {
+        String status = statusCode == 200 ? "OK" : 
+                    statusCode == 400 ? "Bad Request" :
+                    statusCode == 401 ? "Unauthorized" :
+                    statusCode == 404 ? "Not Found" : "Internal Server Error";
+        
+        String response = "HTTP/1.1 " + statusCode + " " + status + "\r\n" +
+                        "Content-Type: application/json\r\n" +
+                        "Access-Control-Allow-Origin: *\r\n" +
+                        "Access-Control-Allow-Methods: GET, POST, PUT, DELETE\r\n" +
+                        "Access-Control-Allow-Headers: Content-Type, Authorization\r\n\r\n" + 
+                        json;
+        out.write(response.getBytes());
+        out.flush();
     }
 
     private static String getLogsPage() {
@@ -1157,17 +1326,6 @@ public class SimpleWebServer {
         }
     }
     
-    private static void sendJsonResponse(OutputStream out, String json, int statusCode) throws IOException {
-        String response = "HTTP/1.1 " + statusCode + " OK\r\n" +
-                         "Content-Type: application/json\r\n" +
-                         "Access-Control-Allow-Origin: *\r\n" +
-                         "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n" +
-                         "Access-Control-Allow-Headers: Content-Type\r\n" +
-                         "\r\n" + json;
-        out.write(response.getBytes());
-        out.flush();
-    }
-
     static class UserDatabase {
         private File dbFile;
         private Map<String, List<String[]>> tables;
