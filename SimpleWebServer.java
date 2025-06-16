@@ -10,6 +10,7 @@ public class SimpleWebServer {
     private static final String CONFIG_FILE = "config.properties";
     private static final Map<String, Long> sessions = new HashMap<>();
     private static final Properties config = new Properties();
+    private static final File PAGES_DIR = new File("pages");
 
     private static String USERNAME;
     private static String PASSWORD;
@@ -20,6 +21,10 @@ public class SimpleWebServer {
     public static void start(int port) throws IOException {
         loadConfig();
         if (!DATABASE_DIR.exists()) DATABASE_DIR.mkdir();
+        if (!PAGES_DIR.exists()) {
+            PAGES_DIR.mkdir();
+            createDefaultIndexPage();
+        }
 
         // Bind to all network interfaces, not just localhost
         ServerSocket serverSocket = new ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"));
@@ -59,7 +64,9 @@ public class SimpleWebServer {
                 }
             }
 
-            if (!isAuthenticated(authHeader)) {
+            boolean isPublicRoute = path.equals("/") || path.startsWith("/pages/") || path.startsWith("/static/");
+
+            if (!isPublicRoute && !isAuthenticated(authHeader)) {
                 String response = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"Nodalix\"\r\n\r\n";
                 out.write(response.getBytes());
                 out.flush();
@@ -80,7 +87,11 @@ public class SimpleWebServer {
 
             log(method + " " + path);
 
-            if (path.equals("/") || path.equals("/index")) {
+            if (path.equals("/")) {
+                // Serve public index.html from /pages directory
+                serveStaticFile(out, new File(PAGES_DIR, "index.html"));
+            }
+            else if (path.equals("/admin") || path.equals("/admin/")) {
                 sendHtml(out, getHomePage());
             }
             else if (path.equals("/createdb") && method.equals("GET")) {
@@ -1006,5 +1017,58 @@ public class SimpleWebServer {
                 this.tableHeaders = new HashMap<>();
             }
         }
+    }
+
+    private static void createDefaultIndexPage() {
+        try {
+            String defaultIndex = """
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Welcome to Nodalix</title>
+                    <script src="https://cdn.tailwindcss.com"></script>
+                </head>
+                <body class="bg-gray-100 min-h-screen flex items-center justify-center">
+                    <div class="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden">
+                        <div class="p-8 text-center">
+                            <h1 class="text-3xl font-bold text-gray-900 mb-4">Welcome to Nodalix</h1>
+                            <p class="text-gray-600 mb-6">Your lightweight Java web server is running!</p>
+                            <a href="/admin" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors">
+                                Admin Dashboard
+                            </a>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """;
+            
+            Files.write(new File(PAGES_DIR, "index.html").toPath(), defaultIndex.getBytes());
+            log("Created default index.html in pages directory");
+        } catch (IOException e) {
+            log("Error creating default index page: " + e.getMessage());
+        }
+    }
+
+    private static void serveStaticFile(OutputStream out, File file) throws IOException {
+        if (!file.exists() || !file.isFile()) {
+            sendHtml(out, get404Page(), 404);
+            return;
+        }
+        
+        String contentType = "text/html";
+        String fileName = file.getName().toLowerCase();
+        if (fileName.endsWith(".css")) contentType = "text/css";
+        else if (fileName.endsWith(".js")) contentType = "application/javascript";
+        else if (fileName.endsWith(".png")) contentType = "image/png";
+        else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) contentType = "image/jpeg";
+        else if (fileName.endsWith(".gif")) contentType = "image/gif";
+        
+        byte[] fileBytes = Files.readAllBytes(file.toPath());
+        String response = "HTTP/1.1 200 OK\r\nContent-Type: " + contentType + "\r\nContent-Length: " + fileBytes.length + "\r\n\r\n";
+        out.write(response.getBytes());
+        out.write(fileBytes);
+        out.flush();
     }
 }
