@@ -41,6 +41,33 @@ public class SimpleWebServer {
         }
     }
 
+    private static boolean requiresAuthentication(String path) {
+    // Define admin paths that require authentication
+    String[] adminPaths = {
+        "/admin",       // Admin panel
+        "/createdb",    // Database creation
+        "/databases",   // Database management
+        "/deletedb",    // Database deletion
+        "/viewdb",      // View database
+        "/createtable", // Table creation
+        "/deleterow",   // Row deletion
+        "/logs",        // Server logs
+        "/clear-logs",  // Clear logs
+        "/config",      // Configuration
+        "/regenerate-key" // Key regeneration
+    };
+    
+    // Check if path starts with any admin path
+    for (String adminPath : adminPaths) {
+        if (path.startsWith(adminPath)) {
+            return true;
+        }
+    }
+    
+    // All other paths are public
+    return false;
+}
+
     private static void handleClient(Socket socket) {
         try (
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
@@ -64,20 +91,19 @@ public class SimpleWebServer {
                 }
             }
 
-            boolean isPublicRoute = path.equals("/") || path.startsWith("/pages/") || path.startsWith("/static/");
-
-            if (!isPublicRoute && !isAuthenticated(authHeader)) {
-                String response = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"Nodalix\"\r\n\r\n";
+            if (requiresAuthentication(path) && !isAuthenticated(authHeader)) {
+                String response = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"Nodalix Admin\"\r\n\r\n";
                 out.write(response.getBytes());
                 out.flush();
                 return;
             }
 
-            // Update session time
-            sessions.put(authHeader, System.currentTimeMillis());
-
-            // Expire old sessions
-            sessions.entrySet().removeIf(e -> System.currentTimeMillis() - e.getValue() > SESSION_TIMEOUT_MS);
+            // Update session time only for authenticated requests
+            if (authHeader != null && isAuthenticated(authHeader)) {
+                sessions.put(authHeader, System.currentTimeMillis());
+                // Expire old sessions
+                sessions.entrySet().removeIf(e -> System.currentTimeMillis() - e.getValue() > SESSION_TIMEOUT_MS);
+            }
 
             if ("POST".equals(method)) {
                 char[] buf = new char[contentLength];
@@ -212,12 +238,56 @@ public class SimpleWebServer {
             else if (path.equals("/api/getrows") && method.equals("POST")) {
                 handleApiGetRows(out, body);
             }
+            else if (path.startsWith("/pages/")) {
+                handleStaticFile(out, path);
+            }
             else {
                 sendHtml(out, get404Page(), 404);
             }
 
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    private static void handleStaticFile(OutputStream out, String path) throws IOException {
+        // Remove /pages/ prefix and get actual file path
+        String filePath = path.substring("/pages/".length());
+        File file = new File("pages", filePath);
+        
+        if (!file.exists() || !file.isFile()) {
+            sendHtml(out, get404Page(), 404);
+            return;
+        }
+        
+        // Determine content type
+        String contentType = getContentType(filePath);
+        
+        // Read file content
+        byte[] content = Files.readAllBytes(file.toPath());
+        
+        // Send response
+        String response = "HTTP/1.1 200 OK\r\n" +
+                        "Content-Type: " + contentType + "\r\n" +
+                        "Content-Length: " + content.length + "\r\n\r\n";
+        
+        out.write(response.getBytes());
+        out.write(content);
+        out.flush();
+    }
+
+    private static String getContentType(String fileName) {
+        String extension = fileName.substring(fileName.lastIndexOf('.') + 1).toLowerCase();
+        switch (extension) {
+            case "html": return "text/html";
+            case "css": return "text/css";
+            case "js": return "application/javascript";
+            case "png": return "image/png";
+            case "jpg": case "jpeg": return "image/jpeg";
+            case "gif": return "image/gif";
+            case "svg": return "image/svg+xml";
+            case "ico": return "image/x-icon";
+            default: return "text/plain";
         }
     }
 
