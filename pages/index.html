@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nodalix - Authentication</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-bg { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .glass-effect { 
+            backdrop-filter: blur(20px); 
+            background: rgba(255,255,255,0.1); 
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .card-shadow { 
+            box-shadow: 0 25px 50px rgba(0,0,0,0.15); 
+        }
+        .animate-float {
+            animation: float 6s ease-in-out infinite;
+        }
+        .animate-float-delayed {
+            animation: float 6s ease-in-out infinite;
+            animation-delay: -3s;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+        .form-container {
+            min-height: 500px;
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .slide-enter {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        .slide-exit {
+            transform: translateX(-100%);
+            opacity: 0;
+        }
+        .input-focus:focus {
+            transform: translateY(-2px);
+            transition: all 0.3s ease;
+        }
+        .btn-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        .notification {
+            transform: translateY(-100px);
+            opacity: 0;
+            transition: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+        .notification.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+    <!-- Floating Elements -->
+    <div class="absolute inset-0 overflow-hidden pointer-events-none">
+        <div class="absolute top-1/4 left-1/4 w-64 h-64 bg-white opacity-5 rounded-full animate-float"></div>
+        <div class="absolute top-3/4 right-1/4 w-48 h-48 bg-white opacity-5 rounded-full animate-float-delayed"></div>
+        <div class="absolute top-1/2 left-3/4 w-32 h-32 bg-white opacity-5 rounded-full animate-float"></div>
+    </div>
+
+    <!-- Notification -->
+    <div id="notification" class="notification fixed top-6 right-6 z-50 max-w-sm">
+        <div class="bg-white rounded-lg shadow-lg p-4 border-l-4" id="notificationContent">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <i id="notificationIcon" class="text-xl"></i>
+                </div>
+                <div class="ml-3">
+                    <p id="notificationMessage" class="text-sm font-medium text-gray-900"></p>
+                </div>
+                <div class="ml-auto pl-3">
+                    <button onclick="hideNotification()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Debug Panel (for development) -->
+    <div id="debugPanel" class="fixed bottom-4 left-4 bg-black bg-opacity-80 text-white p-3 rounded-lg text-xs max-w-sm hidden">
+        <div class="font-semibold mb-2">Debug Info:</div>
+        <div id="debugContent"></div>
+        <button onclick="toggleDebug()" class="mt-2 bg-gray-600 px-2 py-1 rounded text-xs">Hide</button>
+    </div>
+
+    <!-- Main Container -->
+    <div class="w-full max-w-md relative z-10">
+        <!-- Logo and Title -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-white rounded-xl shadow-lg mb-4">
+                <i class="fas fa-database text-2xl text-blue-600"></i>
+            </div>
+            <h1 class="text-3xl font-bold text-white mb-2">Nodalix</h1>
+            <p class="text-blue-100">Secure Database Authentication</p>
+        </div>
+
+        <!-- Form Container -->
+        <div class="glass-effect rounded-2xl p-8 card-shadow form-container">
+            <!-- Login Form -->
+            <div id="loginForm" class="transition-all duration-500">
+                <div class="text-center mb-8">
+                    <h2 class="text-2xl font-bold text-white mb-2">Welcome Back</h2>
+                    <p class="text-blue-100">Sign in to your account</p>
+                </div>
+
+                <form onsubmit="handleLogin(event)" class="space-y-6">
+                    <div>
+                        <label class="block text-sm font-medium text-white mb-2">Username</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-user text-blue-300"></i>
+                            </div>
+                            <input type="text" id="loginUsername" 
+                                   class="input-focus w-full pl-10 pr-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-blue-200 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent transition-all duration-300"
+                                   placeholder="Enter your username" required>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-white mb-2">Password</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-lock text-blue-300"></i>
+                            </div>
+                            <input type="password" id="loginPassword" 
+                                   class="input-focus w-full pl-10 pr-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-blue-200 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent transition-all duration-300"
+                                   placeholder="Enter your password" required>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-hover w-full bg-white text-blue-600 py-3 rounded-lg font-semibold transition-all duration-300 transform">
+                        <i class="fas fa-sign-in-alt mr-2"></i>Sign In
+                    </button>
+                </form>
+
+                <div class="mt-6 text-center">
+                    <p class="text-blue-100">Don't have an account? 
+                        <button onclick="switchToRegister()" class="text-white font-semibold hover:underline transition-all duration-300">
+                            Sign up here
+                        </button>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Register Form -->
+            <div id="registerForm" class="hidden transition-all duration-500">
+                <div class="text-center mb-8">
+                    <h2 class="text-2xl font-bold text-white mb-2">Create Account</h2>
+                    <p class="text-blue-100">Join Nodalix today</p>
+                </div>
+
+                <form onsubmit="handleRegister(event)" class="space-y-6">
+                    <div>
+                        <label class="block text-sm font-medium text-white mb-2">Username</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-user text-blue-300"></i>
+                            </div>
+                            <input type="text" id="registerUsername" 
+                                   class="input-focus w-full pl-10 pr-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-blue-200 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent transition-all duration-300"
+                                   placeholder="Choose a username" required>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-white mb-2">Password</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-lock text-blue-300"></i>
+                            </div>
+                            <input type="password" id="registerPassword" 
+                                   class="input-focus w-full pl-10 pr-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-blue-200 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent transition-all duration-300"
+                                   placeholder="Create a password" required>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-white mb-2">Confirm Password</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-lock text-blue-300"></i>
+                            </div>
+                            <input type="password" id="confirmPassword" 
+                                   class="input-focus w-full pl-10 pr-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-blue-200 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent transition-all duration-300"
+                                   placeholder="Confirm your password" required>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-hover w-full bg-white text-blue-600 py-3 rounded-lg font-semibold transition-all duration-300 transform">
+                        <i class="fas fa-user-plus mr-2"></i>Create Account
+                    </button>
+                </form>
+
+                <div class="mt-6 text-center">
+                    <p class="text-blue-100">Already have an account? 
+                        <button onclick="switchToLogin()" class="text-white font-semibold hover:underline transition-all duration-300">
+                            Sign in here
+                        </button>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Database Status -->
+        <div class="mt-6 text-center">
+            <div class="inline-flex items-center px-4 py-2 bg-green-500 bg-opacity-20 rounded-full" id="dbStatus">
+                <div class="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse" id="dbStatusDot"></div>
+                <span class="text-green-100 text-sm" id="dbStatusText">Database Connected</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Database configuration
+        const DB_CONFIG = {
+            secret: 'VB0LE2R1',
+            dbfile: 'users.secdb',
+            dbtable: 'users',
+            columns: ['id', 'user', 'pass']
+        };
+
+        // Debug functionality
+        let debugMode = true;
+        function toggleDebug() {
+            debugMode = !debugMode;
+            const panel = document.getElementById('debugPanel');
+            panel.classList.toggle('hidden');
+        }
+
+        function debugLog(message, data = null) {
+            if (debugMode) {
+                const debugContent = document.getElementById('debugContent');
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = document.createElement('div');
+                logEntry.innerHTML = `<span class="text-gray-400">[${timestamp}]</span> ${message}`;
+                if (data) {
+                    logEntry.innerHTML += `<br><span class="text-blue-300">${JSON.stringify(data, null, 2)}</span>`;
+                }
+                debugContent.appendChild(logEntry);
+                debugContent.scrollTop = debugContent.scrollHeight;
+            }
+        }
+
+        // Utility functions
+        function showNotification(message, type = 'info') {
+            const notification = document.getElementById('notification');
+            const icon = document.getElementById('notificationIcon');
+            const messageEl = document.getElementById('notificationMessage');
+            const content = document.getElementById('notificationContent');
+
+            // Set message
+            messageEl.textContent = message;
+
+            // Set icon and colors based on type
+            switch(type) {
+                case 'success':
+                    icon.className = 'fas fa-check-circle text-green-500';
+                    content.className = 'bg-white rounded-lg shadow-lg p-4 border-l-4 border-green-500';
+                    break;
+                case 'error':
+                    icon.className = 'fas fa-exclamation-circle text-red-500';
+                    content.className = 'bg-white rounded-lg shadow-lg p-4 border-l-4 border-red-500';
+                    break;
+                case 'warning':
+                    icon.className = 'fas fa-exclamation-triangle text-yellow-500';
+                    content.className = 'bg-white rounded-lg shadow-lg p-4 border-l-4 border-yellow-500';
+                    break;
+                default:
+                    icon.className = 'fas fa-info-circle text-blue-500';
+                    content.className = 'bg-white rounded-lg shadow-lg p-4 border-l-4 border-blue-500';
+            }
+
+            // Show notification
+            notification.classList.add('show');
+
+            // Auto hide after 5 seconds
+            setTimeout(() => {
+                hideNotification();
+            }, 5000);
+        }
+
+        function hideNotification() {
+            const notification = document.getElementById('notification');
+            notification.classList.remove('show');
+        }
+
+        function switchToRegister() {
+            const loginForm = document.getElementById('loginForm');
+            const registerForm = document.getElementById('registerForm');
+            
+            loginForm.classList.add('hidden');
+            registerForm.classList.remove('hidden');
+        }
+
+        function switchToLogin() {
+            const loginForm = document.getElementById('loginForm');
+            const registerForm = document.getElementById('registerForm');
+            
+            registerForm.classList.add('hidden');
+            loginForm.classList.remove('hidden');
+        }
+
+        // API helper function
+        async function makeApiCall(endpoint, payload) {
+            try {
+                // Construct the body string according to your API format
+                let bodyString = `file:${DB_CONFIG.dbfile} table:${DB_CONFIG.dbtable}`;
+                
+                if (payload.row) {
+                    bodyString += ` row:${payload.row}`;
+                }
+                if (payload.where) {
+                    bodyString += ` where:${payload.where}`;
+                }
+
+                debugLog(`API Call: ${endpoint}`, { body: bodyString });
+
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'text/plain',
+                        'Authorization': 'Basic ' + btoa(`secret:${DB_CONFIG.secret}`)
+                    },
+                    body: bodyString
+                });
+
+                if (!response.ok) {
+                    const errText = await response.text();
+                    debugLog(`API Error: ${response.status}`, errText);
+                    throw new Error(`HTTP ${response.status}: ${errText}`);
+                }
+
+                const responseText = await response.text();
+                debugLog(`API Response from ${endpoint}`, responseText);
+                
+                // Parse the response based on the endpoint
+                if (endpoint === '/api/get') {
+                    // Try to parse as JSON first
+                    try {
+                        const jsonResponse = JSON.parse(responseText);
+                        if (jsonResponse.rows) {
+                            debugLog('Parsed JSON rows:', jsonResponse.rows);
+                            return { rows: jsonResponse.rows };
+                        }
+                    } catch (jsonError) {
+                        debugLog('JSON parse failed, trying CSV format');
+                    }
+                    
+                    // Fallback to CSV parsing
+                    const lines = responseText.trim().split('\n').filter(line => line.trim());
+                    const rows = lines.map(line => line.split(','));
+                    debugLog('Parsed CSV rows:', rows);
+                    return { rows };
+                } else {
+                    // For other endpoints, try to parse as JSON or return text
+                    try {
+                        return JSON.parse(responseText);
+                    } catch {
+                        return { success: responseText.includes('success') || responseText.includes('OK'), message: responseText };
+                    }
+                }
+            } catch (error) {
+                debugLog('API call failed:', error.message);
+                console.error('API call failed:', error);
+                throw error;
+            }
+        }
+
+        // Generate unique ID
+        function generateId() {
+            return Date.now().toString() + Math.random().toString(36).substr(2, 5);
+        }
+
+        // Hash password (simple implementation for demo)
+        function hashPassword(password) {
+            // In a real application, use proper password hashing
+            let hash = 0;
+            for (let i = 0; i < password.length; i++) {
+                const char = password.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // Convert to 32-bit integer
+            }
+            return Math.abs(hash).toString(16);
+        }
+
+        // Handle login with improved password checking
+        async function handleLogin(event) {
+            event.preventDefault();
+            
+            const username = document.getElementById('loginUsername').value.trim();
+            const password = document.getElementById('loginPassword').value;
+
+            if (!username || !password) {
+                showNotification('Please fill in all fields', 'warning');
+                return;
+            }
+
+            try {
+                showNotification('Verifying credentials...', 'info');
+                debugLog('Attempting login', { username, passwordLength: password.length });
+
+                // Get all users and check manually
+                const response = await makeApiCall('/api/get', {});
+                
+                if (!response.rows || response.rows.length === 0) {
+                    showNotification('No users found in database', 'error');
+                    debugLog('No users found in database');
+                    return;
+                }
+
+                debugLog('Found users in database', response.rows.length);
+
+                // Try both hashed and plain text comparison
+                const hashedPassword = hashPassword(password);
+                debugLog('Password comparison', { 
+                    entered: password, 
+                    hashed: hashedPassword,
+                    lookingFor: username 
+                });
+
+                let matchedUser = null;
+                
+                // First, try to match with hashed password (assuming DB stores hashed passwords)
+                matchedUser = response.rows.find(row => {
+                    const dbUsername = row[1];
+                    const dbPassword = row[2];
+                    debugLog('Checking user', { dbUsername, dbPassword, hashedPassword });
+                    return dbUsername === username && dbPassword === hashedPassword;
+                });
+
+                // If no match with hashed password, try plain text (for backward compatibility)
+                if (!matchedUser) {
+                    debugLog('No match with hashed password, trying plain text');
+                    matchedUser = response.rows.find(row => {
+                        const dbUsername = row[1];
+                        const dbPassword = row[2];
+                        return dbUsername === username && dbPassword === password;
+                    });
+                    
+                    if (matchedUser) {
+                        debugLog('Found match with plain text password - consider migrating to hashed');
+                    }
+                }
+
+                if (matchedUser) {
+                    debugLog('Login successful', { userId: matchedUser[0], username: matchedUser[1] });
+                    showNotification('Login successful! Welcome back.', 'success');
+                    
+                    // Store user session
+                    const userData = {
+                        id: matchedUser[0],
+                        username: matchedUser[1],
+                        loginTime: new Date().toISOString()
+                    };
+                    
+                    // Store in memory (not localStorage due to artifact restrictions)
+                    window.currentUser = userData;
+                    
+                    // Simulate redirect
+                    setTimeout(() => {
+                        showNotification('Redirecting to dashboard...', 'info');
+                        // In a real app, redirect to main application
+                        // window.location.href = '/dashboard';
+                    }, 2000);
+                } else {
+                    debugLog('No matching user found');
+                    showNotification('Invalid username or password', 'error');
+                }
+
+            } catch (error) {
+                debugLog('Login error', error.message);
+                console.error('Login error:', error);
+                showNotification('Login failed. Please check your connection.', 'error');
+            }
+        }
+
+        // Handle registration
+        async function handleRegister(event) {
+            event.preventDefault();
+            
+            const username = document.getElementById('registerUsername').value.trim();
+            const password = document.getElementById('registerPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            // Validation
+            if (!username || !password || !confirmPassword) {
+                showNotification('Please fill in all fields', 'warning');
+                return;
+            }
+
+            if (password !== confirmPassword) {
+                showNotification('Passwords do not match', 'warning');
+                return;
+            }
+
+            if (password.length < 4) {
+                showNotification('Password must be at least 4 characters long', 'warning');
+                return;
+            }
+
+            if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+                showNotification('Username can only contain letters, numbers, and underscores', 'warning');
+                return;
+            }
+
+            try {
+                showNotification('Creating account...', 'info');
+                debugLog('Attempting registration', { username, passwordLength: password.length });
+
+                // Check if username already exists
+                const existingUsers = await makeApiCall('/api/get', {});
+                
+                if (existingUsers.rows && existingUsers.rows.some(row => row[1] === username)) {
+                    showNotification('Username already exists. Please choose a different one.', 'error');
+                    debugLog('Username already exists', username);
+                    return;
+                }
+
+                // Create new user - store password as hashed
+                const userId = generateId();
+                const hashedPassword = hashPassword(password);
+                const rowData = `${userId},${username},${hashedPassword}`;
+
+                debugLog('Creating user', { userId, username, hashedPassword });
+
+                const insertResponse = await makeApiCall('/api/insert', {
+                    row: rowData
+                });
+
+                if (insertResponse.success) {
+                    debugLog('Registration successful');
+                    showNotification('Account created successfully! You can now sign in.', 'success');
+                    
+                    // Clear form
+                    document.getElementById('registerUsername').value = '';
+                    document.getElementById('registerPassword').value = '';
+                    document.getElementById('confirmPassword').value = '';
+                    
+                    // Switch to login form after delay
+                    setTimeout(() => {
+                        switchToLogin();
+                        showNotification('Please sign in with your new account', 'info');
+                    }, 2000);
+                } else {
+                    debugLog('Registration failed', insertResponse);
+                    showNotification('Registration failed. Please try again.', 'error');
+                }
+
+            } catch (error) {
+                debugLog('Registration error', error.message);
+                console.error('Registration error:', error);
+                showNotification('Registration failed. Please check your connection.', 'error');
+            }
+        }
+
+        // Update database status indicator
+        function updateDbStatus(connected) {
+            const statusElement = document.getElementById('dbStatus');
+            const dotElement = document.getElementById('dbStatusDot');
+            const textElement = document.getElementById('dbStatusText');
+
+            if (connected) {
+                statusElement.className = 'inline-flex items-center px-4 py-2 bg-green-500 bg-opacity-20 rounded-full';
+                dotElement.className = 'w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse';
+                textElement.className = 'text-green-100 text-sm';
+                textElement.textContent = 'Database Connected';
+            } else {
+                statusElement.className = 'inline-flex items-center px-4 py-2 bg-red-500 bg-opacity-20 rounded-full';
+                dotElement.className = 'w-2 h-2 bg-red-400 rounded-full mr-2 animate-pulse';
+                textElement.className = 'text-red-100 text-sm';
+                textElement.textContent = 'Database Disconnected';
+            }
+        }
+
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add some entrance animations
+            const container = document.querySelector('.form-container');
+            container.style.transform = 'translateY(50px)';
+            container.style.opacity = '0';
+            
+            setTimeout(() => {
+                container.style.transition = 'all 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
+                container.style.transform = 'translateY(0)';
+                container.style.opacity = '1';
+            }, 100);
+
+            // Check if user is already logged in (from memory)
+            if (window.currentUser) {
+                showNotification(`Welcome back, ${window.currentUser.username}!`, 'success');
+            }
+        });
+
+        // Test database connection on page load
+        window.addEventListener('load', async function() {
+            try {
+                // Test if we can query the database
+                await makeApiCall('/api/get', {});
+                debugLog('Database connection test successful');
+                console.log('Database connection successful');
+                updateDbStatus(true);
+            } catch (error) {
+                debugLog('Database connection test failed', error.message);
+                console.warn('Database connection test failed:', error);
+                updateDbStatus(false);
+            }
+        });
+    </script>
+</body>
+</html>
