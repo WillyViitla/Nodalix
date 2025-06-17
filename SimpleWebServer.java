@@ -73,11 +73,11 @@ public class SimpleWebServer {
                 return;
             }
 
-            if (!isPublicRoute && authHeader != null) {
-                sessions.put(authHeader, System.currentTimeMillis());
-                // Expire old sessions
-                sessions.entrySet().removeIf(e -> System.currentTimeMillis() - e.getValue() > SESSION_TIMEOUT_MS);
-            }
+            // Update session time
+            sessions.put(authHeader, System.currentTimeMillis());
+
+            // Expire old sessions
+            sessions.entrySet().removeIf(e -> System.currentTimeMillis() - e.getValue() > SESSION_TIMEOUT_MS);
 
             if ("POST".equals(method)) {
                 char[] buf = new char[contentLength];
