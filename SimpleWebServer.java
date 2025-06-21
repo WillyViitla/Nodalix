@@ -11,6 +11,8 @@ public class SimpleWebServer {
     private static final Map<String, Long> sessions = new HashMap<>();
     private static final Properties config = new Properties();
     private static final File PAGES_DIR = new File("pages");
+    private static final Map<String, String> customEndpoints = new HashMap<>();
+
 
     private static String USERNAME;
     private static String PASSWORD;
@@ -20,6 +22,7 @@ public class SimpleWebServer {
 
     public static void start(int port) throws IOException {
         loadConfig();
+        scanEndpoints();
         if (!DATABASE_DIR.exists()) DATABASE_DIR.mkdir();
         if (!PAGES_DIR.exists()) {
             PAGES_DIR.mkdir();
@@ -238,8 +241,92 @@ public class SimpleWebServer {
             else if (path.equals("/api/getrows") && method.equals("POST")) {
                 handleApiGetRows(out, body);
             }
-            else if (path.startsWith("/pages/")) {
-                handleStaticFile(out, path);
+            else if (path.equals("/pages")) {
+                sendHtml(out, getPagesPage());
+            }
+            else if (path.equals("/createpage") && method.equals("POST")) {
+                Map<String, String> form = parseFormData(body);
+                String endpoint = form.get("endpoint");
+                String content = form.get("content");
+                
+                if (endpoint != null && content != null && endpoint.matches("[a-zA-Z0-9-_]+")) {
+                    if (!PAGES_DIR.exists()) {
+                        PAGES_DIR.mkdirs();
+                    }
+                    
+                    File pageFile = new File(PAGES_DIR, endpoint + ".html");
+                    try (FileWriter fw = new FileWriter(pageFile)) {
+                        fw.write(content);
+                    }
+                    
+                    // Update endpoints map
+                    customEndpoints.put("/" + endpoint, pageFile.getAbsolutePath());
+                    log("Created page: " + endpoint);
+                    sendRedirect(out, "/pages");
+                } else {
+                    sendHtml(out, getErrorPage("Invalid endpoint name! Use only letters, numbers, hyphens, and underscores.", "/pages", "Back to Pages"));
+                }
+            }
+            else if (path.equals("/updatepage") && method.equals("POST")) {
+                Map<String, String> form = parseFormData(body);
+                String filename = form.get("filename");
+                String content = form.get("content");
+                
+                if (filename != null && content != null) {
+                    File pageFile = new File(PAGES_DIR, filename);
+                    if (pageFile.exists()) {
+                        try (FileWriter fw = new FileWriter(pageFile)) {
+                            fw.write(content);
+                        }
+                        log("Updated page: " + filename);
+                    }
+                }
+                sendRedirect(out, "/pages");
+            }
+            else if (path.equals("/deletepage") && method.equals("POST")) {
+                Map<String, String> form = parseFormData(body);
+                String filename = form.get("filename");
+                
+                if (filename != null) {
+                    File pageFile = new File(PAGES_DIR, filename);
+                    if (pageFile.exists()) {
+                        pageFile.delete();
+                        // Remove from endpoints map
+                        String endpoint = "/" + filename.replace(".html", "");
+                        customEndpoints.remove(endpoint);
+                        log("Deleted page: " + filename);
+                    }
+                }
+                sendRedirect(out, "/pages");
+            }
+            else if (path.equals("/getpage") && method.equals("GET")) {
+                String filename = getQueryParam(path, "filename");
+                if (filename != null) {
+                    File pageFile = new File(PAGES_DIR, filename);
+                    if (pageFile.exists()) {
+                        try {
+                            String content = Files.readString(pageFile.toPath());
+                            String response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n" + content;
+                            out.write(response.getBytes());
+                            out.flush();
+                            return;
+                        } catch (IOException e) {
+                            sendHtml(out, getErrorPage("Error reading file", "/pages", "Back to Pages"));
+                            return;
+                        }
+                    }
+                }
+                sendHtml(out, getErrorPage("File not found", "/pages", "Back to Pages"));
+            }
+            else if (customEndpoints.containsKey(path)) {
+                try {
+                    String content = Files.readString(Path.of(customEndpoints.get(path)));
+                    String response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n" + content;
+                    out.write(response.getBytes());
+                    out.flush();
+                } catch (IOException e) {
+                    sendHtml(out, getErrorPage("Error loading page", "/", "Go Home"));
+                }
             }
             else {
                 sendHtml(out, get404Page(), 404);
@@ -362,6 +449,9 @@ public class SimpleWebServer {
                                 <a href="/databases" class="text-white hover:text-blue-200 transition-colors">
                                     <i class="fas fa-database mr-1"></i>Databases
                                 </a>
+                                <a href="/pages" class="text-white hover:text-blue-200 transition-colors">
+                                    <i class="fas fa-file-code mr-1"></i>Pages
+                                </a>
                                 <a href="/logs" class="text-white hover:text-blue-200 transition-colors">
                                     <i class="fas fa-file-alt mr-1"></i>Logs
                                 </a>
@@ -427,6 +517,16 @@ public class SimpleWebServer {
                         </div>
                         <h3 class="text-lg font-semibold text-gray-900 mb-2">Configuration</h3>
                         <p class="text-gray-600">Server settings</p>
+                    </div>
+                </a>
+
+                <a href="/pages" class="block bg-white rounded-xl p-6 card-shadow hover-lift">
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-file-code text-2xl text-indigo-600"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-gray-900 mb-2">Pages</h3>
+                        <p class="text-gray-600">Manage custom endpoints</p>
                     </div>
                 </a>
             </div>
@@ -1591,5 +1691,230 @@ public class SimpleWebServer {
         out.write(response.getBytes());
         out.write(fileBytes);
         out.flush();
+    }
+
+    private static void scanEndpoints() {
+        if (!PAGES_DIR.exists()) {
+            PAGES_DIR.mkdirs();
+        }
+        
+        File[] htmlFiles = PAGES_DIR.listFiles((dir, name) -> name.endsWith(".html"));
+        if (htmlFiles != null) {
+            for (File file : htmlFiles) {
+                String fileName = file.getName().replace(".html", "");
+                String endpoint = "/" + fileName;
+                customEndpoints.put(endpoint, file.getAbsolutePath());
+            }
+        }
+    }
+
+    private static String getPagesPage() {
+        // Scan for endpoints on each page load
+        scanEndpoints();
+        
+        StringBuilder content = new StringBuilder();
+        content.append("""
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Pages Management</h1>
+                    <p class="text-gray-600">Create and manage custom endpoints</p>
+                </div>
+                <button onclick="showCreateModal()" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                    <i class="fas fa-plus mr-2"></i>New Page
+                </button>
+            </div>
+
+            <!-- Create Page Modal -->
+            <div id="createModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center z-50">
+                <div class="bg-white rounded-xl p-8 max-w-2xl w-full mx-4 card-shadow">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-gray-900">Create New Page</h2>
+                        <button onclick="hideCreateModal()" class="text-gray-400 hover:text-gray-600">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <form method="POST" action="/createpage" class="space-y-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Endpoint Name</label>
+                            <div class="flex items-center">
+                                <span class="text-gray-500 mr-2">/</span>
+                                <input type="text" name="endpoint" 
+                                    class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    placeholder="my-page" 
+                                    pattern="[a-zA-Z0-9-_]+" 
+                                    title="Only letters, numbers, hyphens, and underscores allowed"
+                                    required>
+                            </div>
+                            <p class="text-sm text-gray-500 mt-1">This will create the endpoint and corresponding HTML file</p>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">HTML Content</label>
+                            <textarea name="content" rows="12" 
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                                    placeholder="Enter your HTML content here..."
+                                    required></textarea>
+                        </div>
+
+                        <div class="flex space-x-4">
+                            <button type="submit" 
+                                    class="flex-1 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                                <i class="fas fa-save mr-2"></i>Create Page
+                            </button>
+                            <button type="button" onclick="hideCreateModal()" 
+                                class="flex-1 bg-gray-200 text-gray-700 py-3 px-6 rounded-lg hover:bg-gray-300 transition-colors font-medium">
+                                <i class="fas fa-times mr-2"></i>Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            """);
+
+        // Display existing pages
+        File[] htmlFiles = PAGES_DIR.listFiles((dir, name) -> name.endsWith(".html"));
+        
+        if (htmlFiles == null || htmlFiles.length == 0) {
+            content.append("""
+                <div class="bg-white rounded-xl p-12 card-shadow text-center">
+                    <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i class="fas fa-file-code text-3xl text-gray-400"></i>
+                    </div>
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2">No Pages Found</h3>
+                    <p class="text-gray-600 mb-6">Create your first custom page to get started</p>
+                    <button onclick="showCreateModal()" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                        <i class="fas fa-plus mr-2"></i>Create Page
+                    </button>
+                </div>
+                """);
+        } else {
+            content.append("""
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <h2 class="text-xl font-semibold text-gray-900 mb-6">
+                        <i class="fas fa-list mr-2"></i>Active Pages
+                    </h2>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Endpoint</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Modified</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                """);
+
+            for (File file : htmlFiles) {
+                String fileName = file.getName();
+                String endpointName = fileName.replace(".html", "");
+                String endpoint = "/" + endpointName;
+                long size = file.length();
+                String sizeStr = size > 1024 ? (size / 1024) + " KB" : size + " B";
+                String lastModified = new Date(file.lastModified()).toString();
+                
+                content.append("""
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="flex items-center">
+                                <i class="fas fa-link text-blue-500 mr-2"></i>
+                                <a href="%s" target="_blank" class="text-blue-600 hover:text-blue-800 font-medium">%s</a>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-mono">%s</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">%s</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">%s</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm space-x-2">
+                            <button onclick="editPage('%s')" class="text-blue-600 hover:text-blue-800 transition-colors">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <form method="POST" action="/deletepage" class="inline"
+                                onsubmit="return confirm('Are you sure you want to delete this page?')">
+                                <input type="hidden" name="filename" value="%s">
+                                <button type="submit" class="text-red-600 hover:text-red-800 transition-colors">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    """.formatted(endpoint, endpoint, fileName, sizeStr, lastModified, fileName, fileName));
+            }
+            
+            content.append("""
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                """);
+        }
+
+        content.append("""
+            <!-- Edit Page Modal -->
+            <div id="editModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center z-50">
+                <div class="bg-white rounded-xl p-8 max-w-4xl w-full mx-4 card-shadow max-h-screen overflow-y-auto">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-gray-900">Edit Page</h2>
+                        <button onclick="hideEditModal()" class="text-gray-400 hover:text-gray-600">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <form method="POST" action="/updatepage" class="space-y-6">
+                        <input type="hidden" name="filename" id="editFilename">
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">File: <span id="editFileDisplay" class="font-mono text-blue-600"></span></label>
+                            <textarea name="content" id="editContent" rows="20" 
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                                    required></textarea>
+                        </div>
+
+                        <div class="flex space-x-4">
+                            <button type="submit" 
+                                    class="flex-1 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                                <i class="fas fa-save mr-2"></i>Update Page
+                            </button>
+                            <button type="button" onclick="hideEditModal()" 
+                                class="flex-1 bg-gray-200 text-gray-700 py-3 px-6 rounded-lg hover:bg-gray-300 transition-colors font-medium">
+                                <i class="fas fa-times mr-2"></i>Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <script>
+                function showCreateModal() {
+                    document.getElementById('createModal').classList.remove('hidden');
+                }
+                
+                function hideCreateModal() {
+                    document.getElementById('createModal').classList.add('hidden');
+                }
+                
+                function hideEditModal() {
+                    document.getElementById('editModal').classList.add('hidden');
+                }
+                
+                async function editPage(filename) {
+                    try {
+                        const response = await fetch('/getpage?filename=' + encodeURIComponent(filename));
+                        const content = await response.text();
+                        
+                        document.getElementById('editFilename').value = filename;
+                        document.getElementById('editFileDisplay').textContent = filename;
+                        document.getElementById('editContent').value = content;
+                        document.getElementById('editModal').classList.remove('hidden');
+                    } catch (error) {
+                        alert('Error loading page content: ' + error.message);
+                    }
+                }
+            </script>
+            """);
+
+        return getBaseTemplate("Pages Management", content.toString());
     }
 }
